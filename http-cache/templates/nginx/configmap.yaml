@@ -1,0 +1,164 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $.Release.Name }}-nginx-cache
+  labels:
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+data:
+  nginx.conf: |
+    user  nginx;
+    worker_processes  auto;
+    
+    error_log /dev/stdout info;
+    pid        /var/run/nginx.pid;
+
+    # Includes files with directives to load dynamic modules.
+    include /etc/nginx/modules/*.conf;
+
+    events {
+        use epoll;
+        multi_accept on;
+        worker_connections  10240;
+    }
+    
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+
+        vhost_traffic_status_zone;
+    
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+    
+        access_log /dev/stdout;
+    
+        sendfile        on;
+        tcp_nopush     on;
+    
+        keepalive_timeout  65;
+    
+        gzip  on;
+
+        proxy_cache_path /data/cache levels=1:2 keys_zone=mycache:400m max_size=100g
+                         inactive=30d use_temp_path=off;
+    
+        limit_req_zone $realip_remote_addr zone=one:10m rate=20r/s;
+        limit_req_zone $realip_remote_addr zone=two:10m rate=100r/m;
+        include /etc/nginx/resolver.conf;
+        server {
+            listen *:10253;
+            server_name _;
+
+            vhost_traffic_status_bypass_limit on;
+            vhost_traffic_status_bypass_stats on;
+
+            location /health {
+                access_log off;
+                add_header 'Content-Type' 'text/plain';
+                return 200 "healthy\n";
+            }
+        
+            location /metrics {
+                vhost_traffic_status_display;
+                vhost_traffic_status_display_format prometheus;
+            }
+        }
+
+        upstream origin_servers {
+            {{- range $num, $ep := $.Values.endpoints }} 
+            server {{ $ep }};
+            {{- end }}
+        }
+
+        upstream imgproxys {
+            server imgproxy-imgproxy.imgproxy.svc.cluster.local.:80;
+        }
+
+        # URL shorter:
+        # / --> /
+        # /a --> /a
+        # /a/b --> /a/*
+        map $uri $shorten_url {
+            ~^/$ /;
+            ~^/([^/]+)$ /$1; 
+            ~^/([^/]+)/.*$ /$1/*;
+        }
+
+        # URL shortener:
+        # Example: / --> /
+        # Example: /a --> /a
+        # Example: /a/ --> /a
+        # Example: /a/b --> /a/*
+        map $uri $shorten_url {
+            ~^/$ /;
+            ~^/([^/]+)$ /$1;
+            ~^/([^/]+)/$ /$1;
+            ~^/([^/]+)/.*$ /$1/*;
+        }
+
+        server {
+            listen *:80;
+            server_name _;
+            vhost_traffic_status_filter_by_host on;
+
+            vhost_traffic_status_filter_by_set_key $shorten_url url::$host;
+
+            proxy_cache mycache;
+            proxy_cache_revalidate on;
+            proxy_cache_lock on;
+            proxy_cache_key $scheme$http_host$request_uri;
+            proxy_cache_purge PURGE from 10.0.0.0/8;
+            cache_purge_response_type json;
+        
+            proxy_cache_valid 200 1h;
+            proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+
+            proxy_cache_background_update on;
+
+            proxy_connect_timeout 400ms;
+            proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+            set_real_ip_from 10.0.0.0/8;
+            real_ip_recursive on;
+            real_ip_header X-Forwarded-For;
+
+            # Route to handle image resizing requests
+            location ~* ^/resize/(\d+)/(\d+)/(.+)$ {
+                set $width $1;
+                set $height $2;
+                set $image_location $3;
+                limit_req zone=one burst=10 delay=5;
+                access_by_lua '
+                    local width = tonumber(ngx.var.width)
+                    local height = tonumber(ngx.var.height)
+
+                    -- Enforce the maximum width and height
+                    if width > 2000 then
+                        ngx.var.width = 2000
+                    end
+                    if height > 2000 then
+                        nginx.var.height = 2000
+                    end
+                ';
+                proxy_pass http://imgproxys/unsafe/resize:fill:$width:$height:0/$image_location;
+                proxy_buffering on;
+            }        
+            location / {
+                proxy_set_header Host $http_host;
+
+                ## debug
+                add_header X-Cache-Status $upstream_cache_status;
+                add_header X-Cache-Node $hostname;
+                add_header X-Cache-Key $scheme$http_host$request_uri;
+
+                proxy_hide_header Pragma;
+                proxy_hide_header Expires;
+
+                # to backends
+                proxy_pass http://origin_servers;
+                proxy_buffering on;
+            }
+        }
+    }
