@@ -1,0 +1,45 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: ycdn
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/supu2/ycdn
+  ref:
+    branch: main
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: http-cache
+  namespace: flux-system
+spec:
+  interval: 1h
+  install:
+    createNamespace: true
+  targetNamespace: http-cache
+  releaseName: http-cache
+  dependsOn:
+    - name: imgproxy
+    - name: metallb
+  chart:
+    spec:
+      chart: http-cache
+      sourceRef:
+        kind: GitRepository
+        name: ycdn
+        namespace: flux-system
+      interval: 1h
+  values:
+    external: true
+    size: {{ .Values.nginx.size }}
+    storageClass: ""
+    haproxy:
+      # https://www.haproxy.com/blog/haproxys-load-balancing-algorithm-for-static-content-delivery-with-varnish#load-balancing-varnish-cache-server 
+      balance: "uri whole" # <uri|uri whole|url_param id>
+      replicas: {{ .Values.haproxy.replicas }}
+    nginx:
+      replicas: {{ .Values.nginx.replicas}}
+    endpoints: 
+      {{-  toYaml .Values.allowedDomains | nindent 6}}:443

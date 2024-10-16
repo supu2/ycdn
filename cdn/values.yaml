@@ -1,0 +1,11 @@
+haproxy:
+  replicas: 3
+nginx:
+  replicas: 3
+  size: 100Gi
+
+allowedDomains: 
+  - "cdn.dsmcdn.com"
+
+metallb:
+  ipPool: "172.17.0.200-172.17.0.250"

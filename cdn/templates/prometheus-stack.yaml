@@ -1,0 +1,78 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://prometheus-community.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: prometheus-stack
+  namespace: flux-system
+spec:
+  interval: 1h
+  install:
+    createNamespace: true
+  targetNamespace: monitoring
+  releaseName: prometheus-operator
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus
+        namespace: flux-system
+      interval: 1h
+  values:
+    grafana:
+      dashboardProviders:
+        dashboardproviders.yaml:
+          apiVersion: 1
+          providers:
+          - name: 'default'
+            orgId: 1
+            folder: 'CDN'
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/default
+      dashboards:
+        default:
+          nginx-vts-stats-kubernetes:
+            gnetId: 12164
+            revision: 6
+            datasource: Prometheus
+          imgproxy:
+            ur: 'https://gist.githubusercontent.com/DarthSim/e7b0dc8e54a71dea047a6fc367ef54ea/raw/03eb69c4dc9bcd47916e188007a5c481771c9fac/imgproxy.json'
+            token: ''
+            datasource: Prometheus
+      persistence:
+        enabled: true
+      ingress:
+        enabled: false
+      alertmanagerSpec:
+        storage:
+          volumeClaimTemplate:
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 1Gi
+    prometheus:
+      prometheusSpec:
+        storageSpec: 
+          volumeClaimTemplate:
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 1Gi
+    kubeControllerManager:
+      enabled: false
+    defaultRules:
+      rules:
+        kubeSchedulerAlerting: false

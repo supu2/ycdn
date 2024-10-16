@@ -1,0 +1,228 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: imgproxy
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://helm.imgproxy.net/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: imgproxy
+  namespace: flux-system
+spec:
+  interval: 1h
+  install:
+    createNamespace: true  
+  targetNamespace: imgproxy
+  releaseName: imgproxy
+  chart:
+    spec:
+      chart: imgproxy
+      sourceRef:
+        kind: HelmRepository
+        name: imgproxy
+        namespace: flux-system
+      interval: 1h
+      #version: '3.19.0'
+  values:
+    resources:
+      deployment:
+        replicas:
+          # The default number of replicas to start from (default 1)
+          default: 5
+          # The minimum number of replicas (default to `default`).
+          minCount: 1
+          # The maximum number of replicas (default to `minCount`).
+          # Values less then `minCount` are ignored!
+          maxCount: 20
+          # The number of pods to be added or removed (1 by default).
+          #
+          # The setting is used if `minCount < maxCount` only.
+          stepCount: 1
+
+          # The period (1 - 1800 seconds) during which the step is applied
+          # (60 seconds by default).
+          #
+          # For example, default settings (step: 1, period: 60) means
+          # that the scaling rate is no more than 1 pod a minute.
+          #
+          # The setting is used if `minCount < maxCount` only.
+          stepSeconds: 60
+
+          # The number of seconds for which past recommendations
+          # should be considered while scaling up or scaling down (0 - 3600).
+          # The period will be the same for both up- and downscaling.
+          #
+          # The setting is used if `minCount < maxCount` only (default 300 seconds).
+          stabilizationInterval: 300
+
+          # The average % of CPU utilization by imgproxy pod.
+          # The value is relative to the requested CPU utilization
+          # (resources.deployment.resources.requests.cpu).
+          #
+          # The setting MUST be set if `minCount < maxCount` only.
+          cpuUtilization: 80
+        resources:
+          limits:
+            cpu: 1
+            memory: 1Gi
+          requests:
+            cpu: 700m
+            memory: 700Mi
+    features:
+      prometheus:
+        enabled: true
+        namespace: monitoring
+      # https://docs.imgproxy.net/configuration?id=server
+      server:
+
+        # ENV['IMGPROXY_READ_TIMEOUT']
+        # The maximum duration (in seconds) for reading the entire image request, including the body
+        readTimeout: "10"
+
+        # ENV['IMGPROXY_WRITE_TIMEOUT']
+        # The maximum duration (in seconds) for writing the response
+        writeTimeout: "10"
+
+        # ENV['IMGPROXY_KEEP_ALIVE_TIMEOUT']
+        # the maximum duration (in seconds) to wait for the next request before closing the connection.
+        # When set to 0, keep-alive is disabled.
+        keepAliveTimeout: "10"
+
+        # ENV['IMGPROXY_CLIENT_KEEP_ALIVE_TIMEOUT']
+        # The maximum duration (in seconds) to wait for the next request
+        # before closing the HTTP client connection.
+        # The HTTP client is used to download source images.
+        # When set to 0, keep-alive is disabled. Default: 90
+        clientKeepAliveTimeout: "90"
+
+        # ENV['IMGPROXY_DOWNLOAD_TIMEOUT']
+        # The maximum duration (in seconds) for downloading the source image
+        downloadTimeout: "5"
+
+        # ENV['IMGPROXY_CONCURRENCY']
+        # The maximum number of image requests to be processed simultaneously.
+        # Default: double number of CPU cores
+        concurrency: ""
+
+        # ENV['IMGPROXY_REQUESTS_QUEUE_SIZE']
+        # The maximum number of image requests that can be put in the queue.
+        # Requests that exceed this limit are rejected with `429` HTTP status.
+        # When set to `0`, the requests queue is unlimited.
+        requestsQueueSize: 0
+
+        # ENV['IMGPROXY_MAX_CLIENTS']
+        # The maximum number of simultaneous active connections.
+        # Default: concurrency * 10
+        maxClients: ""
+
+        # ENV['IMGPROXY_TTL']
+        # Duration in seconds sent in Expires and Cache-Control: max-age headers.
+        ttl: ~
+
+        # ENV['IMGPROXY_CACHE_CONTROL_PASSTHROUGH']
+        # when true and source image response contains Expires or Cache-Control headers, reuse those headers
+        cacheControlPassthrough: false
+
+        # ENV['IMGPROXY_SET_CANONICAL_HEADER']
+        # when true and the source image has http or https scheme, set rel="canonical" HTTP header to the value of the source image URL.
+        setCanonicalHeader: false
+
+        # ENV['IMGPROXY_SO_REUSEPORT']
+        # when true, enables SO_REUSEPORT socket option (currently on linux and darwin only)
+        soReuseport: false
+      security:
+
+        # ENV['IMGPROXY_SECRET']
+        # the authorization token. If specified, the HTTP request should contain the `Authorization: Bearer %secret%` header
+        secret: ""
+
+        # ENV['IMGPROXY_MAX_SRC_RESOLUTION']
+        # the maximum resolution of the source image, in megapixels. Images with larger actual size will be rejected.
+        maxSrcResolution: "16.8"
+
+        # ENV['IMGPROXY_MAX_SRC_FILE_SIZE']
+        # The maximum size of the source image, in bytes. Images with larger file size will be rejected.
+        # When `0`, file size check is disabled.
+        maxSrcFileSize: "1000000"
+
+        # ENV['IMGPROXY_MAX_ANIMATION_FRAMES']
+        # the maximum of animated image frames to being processed.
+        maxAnimationFrames: "1"
+
+        # ENV['IMGPROXY_MAX_ANIMATION_FRAME_RESOLUTION']
+        # The maximum resolution of the animated source image frame, in megapixels.
+        # Images with larger actual frame size will be rejected.
+        # When set to 0, imgproxy will test the whole animated image resolution
+        # against IMGPROXY_MAX_SRC_RESOLUTION summarising all the frames’ resolutions.
+        # Default: 0
+        maxAnimationFrameResolution: 0
+
+        # ENV['IMGPROXY_MAX_SVG_CHECK_BYTES']
+        # the maximum number of bytes imgproxy will read to recognize SVG.
+        # If imgproxy can't recognize your SVG, try to increase this number.
+        maxSvgCheckBytes: "32768" # 32KB
+
+        # ENV['IMGPROXY_MAX_REDIRECTS']
+        # (v3.3+) Requests to some image sources may go through too many redirects or enter an infinite loop.
+        # The max number of redirects imgproxy can follow while requesting the source image.
+        maxRedirects: "3"
+
+        # ENV['IMGPROXY_SOURCE_URL_ENCRYPTION_KEY']
+        # hex-encoded key used for source URL encryption
+        sourceUrlEncryptionKey: ""
+
+        # ENV['IMGPROXY_ALLOW_ORIGIN']
+        # when set, enables CORS headers with provided origin. CORS headers are disabled by default.
+        allowOrigin: false
+
+        # ENV['IMGPROXY_ALLOWED_SOURCES']
+        # whitelist of source image URLs prefixes divided by comma. When blank, imgproxy allows all source image URLs.
+        # Example: `s3://,https://example.com/,local://`.
+        allowedSources: "{{- range $.Values.allowedDomains }}https://{{ . }},{{- end }}"
+
+        # ENV['IMGPROXY_ALLOW_LOOPBACK_SOURCE_ADDRESSES']
+        # when true, allows connecting to loopback IP addresses
+        # (127.0.0.1-127.255.255.255 and IPv6 analogues) when requesting source images.
+        # Default: false
+        allowLoopbackSourceAddresses: ~
+
+        # ENV['IMGPROXY_ALLOW_LINK_LOCAL_SOURCE_ADDRESSES']
+        # when true, allows connecting to link-local multicast and unicast IP addresses
+        # (224.0.0.1-224.0.0.255, 169.254.0.1-169.254.255.255, and IPv6 analogues)
+        # when requesting source images.
+        # Default: false
+        allowLinkSourceAddresses: ~
+
+        # ENV['IMGPROXY_ALLOW_PRIVATE_SOURCE_ADDRESSES']
+        # when true, allows connecting to private IP addresses
+        # (10.0.0.0 - 10.255.255.255, 172.16.0.0 - 172.31.255.255, 192.168.0.0 - 192.168.255.255,
+        # and IPv6 analogues) when requesting source images.
+        # Default: true
+        allowPrivateSourceAddresses: true
+
+        # ENV['IMGPROXY_SANITIZE_SVG']
+        # (v3.6+) when true (default), imgproxy will remove scripts from SVG images to prevent XSS attacks.
+        sanitizeSvg: true
+
+        # ENV['IMGPROXY_IGNORE_SSL_VERIFICATION']
+        # when true, disables SSL verification, so imgproxy can be used in a development environment with self-signed SSL certificates.
+        ignoreSslVerification: false
+
+        # ENV['IMGPROXY_ALLOW_SECURITY_OPTIONS']
+        # when true, allows usage of security-related processing options such as `max_src_resolution`,
+        # `max_src_file_size`, `max_animation_frames`, and `max_animation_frame_resolution`.
+        # Default: `false`.
+        allowSecurityOptions: false
+
+        # ENV['IMGPROXY_DEVELOPMENT_ERRORS_MODE']
+        # when true, imgproxy will respond with detailed error messages.
+        # Not recommended for production because some errors may contain stack trace.
+        developmentErrorsMode: ""      
+      urlSignature:
+        # If URL signature is enabled
+        enabled: false
+      
