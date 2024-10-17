@@ -42,4 +42,4 @@ spec:
     nginx:
       replicas: {{ .Values.nginx.replicas}}
     endpoints: 
-      {{-  toYaml .Values.allowedDomains | nindent 6}}:443
+      {{-  toYaml .Values.allowedDomains | nindent 6}}:8000

@@ -45,8 +45,8 @@ data:
         proxy_cache_path /data/cache levels=1:2 keys_zone=mycache:400m max_size=100g
                          inactive=30d use_temp_path=off;
     
-        limit_req_zone $realip_remote_addr zone=one:10m rate=20r/s;
-        limit_req_zone $realip_remote_addr zone=two:10m rate=100r/m;
+        #limit_req_zone $realip_remote_addr zone=one:10m rate=20r/s;
+        #limit_req_zone $realip_remote_addr zone=two:10m rate=100r/m;
         include /etc/nginx/resolver.conf;
         server {
             listen *:10253;
@@ -129,7 +129,7 @@ data:
                 set $width $1;
                 set $height $2;
                 set $image_location $3;
-                limit_req zone=one burst=10 delay=5;
+                #limit_req zone=one burst=10 delay=5;
                 access_by_lua '
                     local width = tonumber(ngx.var.width)
                     local height = tonumber(ngx.var.height)

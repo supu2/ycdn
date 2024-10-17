@@ -5,7 +5,7 @@ nginx:
   size: 100Gi
 
 allowedDomains: 
-  - "cdn.dsmcdn.com"
+  - "192.168.122.1"
 
 metallb:
   ipPool: "172.17.0.200-172.17.0.250"
